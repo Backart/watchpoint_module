@@ -21,9 +21,7 @@ MODULE_PARM_DESC(wp_address, "Memory address to monitor (kernel virtual address)
 struct watchpoint_data wp_data;
 static struct kobject *watchpoint_kobj;
 
-/* ===========================
- * Handlers for read/write
- * =========================== */
+
 static void wp_read_handler(struct perf_event *bp,
                             struct perf_sample_data *data,
                             struct pt_regs *regs)
@@ -42,9 +40,7 @@ static void wp_write_handler(struct perf_event *bp,
     dump_stack();
 }
 
-/* ===========================
- * Watchpoint management
- * =========================== */
+
 static void remove_watchpoint(void)
 {
     int cpu;
@@ -150,9 +146,7 @@ fail_cleanup:
     return ret;
 }
 
-/* ===========================
- * Sysfs entries
- * =========================== */
+
 static ssize_t address_show(struct kobject *kobj,
                             struct kobj_attribute *attr, char *buf)
 {
@@ -196,9 +190,7 @@ static struct attribute_group attr_group = {
     .attrs = attrs,
 };
 
-/* ===========================
- * Init / Exit
- * =========================== */
+
 static int __init watchpoint_init(void)
 {
     int ret;
