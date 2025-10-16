@@ -1,3 +1,13 @@
+/**
+ * @file watchpoint_module.c
+ * @brief Linux kernel module for setting hardware watchpoints on kernel memory.
+ *
+ * This module allows monitoring a specified kernel virtual address. When the address
+ * is accessed (read or write), user-defined callbacks are invoked, and a backtrace
+ * is printed. The module exposes sysfs entries to set the monitored address dynamically
+ * and check whether the watchpoint is enabled.
+ */
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -9,19 +19,42 @@
 #include <linux/sysfs.h>
 #include "watchpoint_module.h"
 
+/* Module metadata */
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Artem Maksymenko");
 MODULE_DESCRIPTION("Kernel module for setting hardware watchpoints (read/write)");
 MODULE_VERSION("0.2");
 
+/** 
+ * @brief Module parameter for the memory address to monitor.
+ * 
+ * Can be set at module load time via insmod or dynamically via sysfs.
+ */
 unsigned long wp_address = 0;
 module_param(wp_address, ulong, 0644);
 MODULE_PARM_DESC(wp_address, "Memory address to monitor (kernel virtual address)");
 
+/** Global data structure storing watchpoint state */
 struct watchpoint_data wp_data;
+
+/** Kobject for sysfs interface */
 static struct kobject *watchpoint_kobj;
 
+/* ===========================
+ * Watchpoint callback handlers
+ * =========================== */
 
+/**
+ * @brief Callback for read accesses to the watched address.
+ *
+ * This function is called by the perf_event infrastructure whenever
+ * a read occurs on the monitored address. It logs information and
+ * prints a stack trace.
+ *
+ * @param bp Pointer to the perf_event triggering the callback.
+ * @param data Sample data (unused).
+ * @param regs CPU registers at the time of the access.
+ */
 static void wp_read_handler(struct perf_event *bp,
                             struct perf_sample_data *data,
                             struct pt_regs *regs)
@@ -31,6 +64,17 @@ static void wp_read_handler(struct perf_event *bp,
     dump_stack();
 }
 
+/**
+ * @brief Callback for write accesses to the watched address.
+ *
+ * This function is called by the perf_event infrastructure whenever
+ * a write occurs on the monitored address. It logs information and
+ * prints a stack trace.
+ *
+ * @param bp Pointer to the perf_event triggering the callback.
+ * @param data Sample data (unused).
+ * @param regs CPU registers at the time of the access.
+ */
 static void wp_write_handler(struct perf_event *bp,
                              struct perf_sample_data *data,
                              struct pt_regs *regs)
@@ -40,7 +84,16 @@ static void wp_write_handler(struct perf_event *bp,
     dump_stack();
 }
 
+/* ===========================
+ * Watchpoint management
+ * =========================== */
 
+/**
+ * @brief Remove the currently active watchpoint.
+ *
+ * Releases all per-CPU perf_event resources and marks the watchpoint
+ * as disabled.
+ */
 static void remove_watchpoint(void)
 {
     int cpu;
@@ -78,6 +131,15 @@ static void remove_watchpoint(void)
     wp_data.address = 0;
 }
 
+/**
+ * @brief Set a hardware watchpoint on the specified address.
+ *
+ * Allocates per-CPU perf_event resources and registers read/write callbacks.
+ * Performs validation on the address and enforces 4-byte alignment.
+ *
+ * @param address Kernel virtual address to monitor.
+ * @return 0 on success, negative error code on failure.
+ */
 static int set_watchpoint(unsigned long address)
 {
     struct perf_event_attr attr;
@@ -89,13 +151,11 @@ static int set_watchpoint(unsigned long address)
         return -EINVAL;
     }
 
-    /* address must be kernel virtual, not user-space */
     if (!virt_addr_valid((void *)address)) {
         pr_err("Address 0x%lx is not a valid kernel virtual address\n", address);
         return -EINVAL;
     }
 
-    /* enforce 4-byte alignment */
     if (address & 0x3) {
         pr_warn("Address 0x%lx not aligned, aligning down to 0x%lx\n",
                 address, address & ~0x3UL);
@@ -108,7 +168,7 @@ static int set_watchpoint(unsigned long address)
     hw_breakpoint_init(&attr);
     attr.bp_addr = address;
     attr.bp_len = HW_BREAKPOINT_LEN_4;
-    attr.bp_type = HW_BREAKPOINT_RW;  /* RW = both read and write */
+    attr.bp_type = HW_BREAKPOINT_RW;
     attr.disabled = false;
 
     wp_data.wp_read = alloc_percpu(struct perf_event *);
@@ -146,13 +206,22 @@ fail_cleanup:
     return ret;
 }
 
+/* ===========================
+ * Sysfs interface
+ * =========================== */
 
+/**
+ * @brief Show current watchpoint address via sysfs.
+ */
 static ssize_t address_show(struct kobject *kobj,
                             struct kobj_attribute *attr, char *buf)
 {
     return scnprintf(buf, PAGE_SIZE, "0x%lx\n", wp_data.address);
 }
 
+/**
+ * @brief Set a new watchpoint address via sysfs.
+ */
 static ssize_t address_store(struct kobject *kobj,
                              struct kobj_attribute *attr,
                              const char *buf, size_t count)
@@ -169,6 +238,9 @@ static ssize_t address_store(struct kobject *kobj,
     return count;
 }
 
+/**
+ * @brief Show whether the watchpoint is enabled via sysfs.
+ */
 static ssize_t enabled_show(struct kobject *kobj,
                             struct kobj_attribute *attr, char *buf)
 {
@@ -190,7 +262,18 @@ static struct attribute_group attr_group = {
     .attrs = attrs,
 };
 
+/* ===========================
+ * Module init/exit
+ * =========================== */
 
+/**
+ * @brief Initialize the watchpoint module.
+ *
+ * Creates the sysfs interface and optionally sets an initial watchpoint
+ * if the module parameter wp_address is specified.
+ *
+ * @return 0 on success, negative error code on failure.
+ */
 static int __init watchpoint_init(void)
 {
     int ret;
@@ -218,6 +301,11 @@ static int __init watchpoint_init(void)
     return 0;
 }
 
+/**
+ * @brief Cleanup the watchpoint module.
+ *
+ * Removes the active watchpoint and deletes the sysfs interface.
+ */
 static void __exit watchpoint_exit(void)
 {
     pr_info("Unloading watchpoint module\n");
