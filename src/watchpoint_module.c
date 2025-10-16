@@ -19,12 +19,6 @@
 #include <linux/sysfs.h>
 #include "watchpoint_module.h"
 
-/* Module metadata */
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Artem Maksymenko");
-MODULE_DESCRIPTION("Kernel module for setting hardware watchpoints (read/write)");
-MODULE_VERSION("0.2");
-
 /** 
  * @brief Module parameter for the memory address to monitor.
  * 
