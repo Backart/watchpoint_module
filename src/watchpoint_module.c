@@ -24,6 +24,7 @@
  * 
  * Can be set at module load time via insmod or dynamically via sysfs.
  */
+
 unsigned long wp_address = 0;
 module_param(wp_address, ulong, 0644);
 MODULE_PARM_DESC(wp_address, "Memory address to monitor (kernel virtual address)");
